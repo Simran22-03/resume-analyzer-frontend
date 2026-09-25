@@ -1,20 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  LayoutDashboard,
-  FileText,
-  Bot,
-  Users,
-  BriefcaseBusiness,
-  Settings,
-  Bell,
-  ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  Sparkles,
-  UserCircle,
   User,
   Lock,
   Eye,
@@ -24,26 +13,48 @@ import {
   LogOut,
 } from "lucide-react";
 
+import EmployeeSidebar from "@/components/EmployeeSidebar";
+import { api, clearAuthTokens } from "@/lib/api";
+
 type SettingsSection =
   | "main"
   | "profile"
-  | "security"
-  | "notifications";
+  | "security";
+
+type ProfileData = {
+  id: number;
+  full_name: string;
+  email: string;
+};
 
 export default function SettingsPage() {
   const router = useRouter();
 
-  const [sidebarCollapsed, setSidebarCollapsed] =
-    useState(false);
-
   const [activeSection, setActiveSection] =
     useState<SettingsSection>("main");
 
+  /* =========================================================
+     PROFILE STATE
+  ========================================================= */
+
   const [fullName, setFullName] =
-    useState("Employee");
+    useState("");
 
   const [email, setEmail] =
-    useState("employee@example.com");
+    useState("");
+
+  const [profileLoading, setProfileLoading] =
+    useState(true);
+
+  const [profileSaving, setProfileSaving] =
+    useState(false);
+
+  const [saved, setSaved] =
+    useState(false);
+
+  /* =========================================================
+     PASSWORD STATE
+  ========================================================= */
 
   const [currentPassword, setCurrentPassword] =
     useState("");
@@ -63,86 +74,311 @@ export default function SettingsPage() {
   const [showConfirmPassword, setShowConfirmPassword] =
     useState(false);
 
-  const [emailNotifications, setEmailNotifications] =
-    useState(true);
-
-  const [saved, setSaved] =
+  const [passwordLoading, setPasswordLoading] =
     useState(false);
 
-  const navigationItems = [
-    {
-      label: "Dashboard",
-      icon: LayoutDashboard,
-      path: "/employee",
-    },
-    {
-      label: "Resume Analyzer",
-      icon: FileText,
-      path: "/employee/resume-analyzer",
-    },
-    {
-      label: "Resume Builder",
-      icon: Bot,
-      path: "/employee/resume-builder",
-    },
-    {
-      label: "Compare Resume",
-      icon: Users,
-      path: "/employee/compare",
-    },
-    {
-      label: "Interview Prep",
-      icon: BriefcaseBusiness,
-      path: "/employee/interview-prep",
-    },
-    {
-      label: "Settings",
-      icon: Settings,
-      path: "/employee/settings",
-    },
-  ];
+  /* =========================================================
+     LOAD PROFILE
+  ========================================================= */
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        setProfileLoading(true);
+
+        const response =
+          await api.get<ProfileData>(
+            "/settings/profile/"
+          );
+
+        const profile = response.data;
+
+        setFullName(
+          profile.full_name || ""
+        );
+
+        setEmail(
+          profile.email || ""
+        );
+      } catch (error: any) {
+        console.error(
+          "Failed to load profile:",
+          error
+        );
+
+        if (
+          error?.response?.status === 401
+        ) {
+          clearAuthTokens();
+          router.push("/login");
+        }
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, [router]);
+
+  /* =========================================================
+     LOGOUT
+  ========================================================= */
 
   const handleLogout = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("user");
+    clearAuthTokens();
 
     router.replace("/login");
   };
 
-  const handleSaveProfile = () => {
-    setSaved(true);
+  /* =========================================================
+     SAVE PROFILE
+  ========================================================= */
 
-    setTimeout(() => {
+  const handleSaveProfile = async () => {
+    if (!fullName.trim()) {
+      alert("Full name is required.");
+      return;
+    }
+
+    if (!email.trim()) {
+      alert("Email address is required.");
+      return;
+    }
+
+    try {
+      setProfileSaving(true);
       setSaved(false);
-    }, 2000);
-  };
 
-  const handleChangePassword = () => {
-    if (
-      !currentPassword ||
-      !newPassword ||
-      !confirmPassword
-    ) {
-      alert("Please fill in all password fields.");
-      return;
-    }
+      const response =
+        await api.patch(
+          "/settings/profile/",
+          {
+            full_name:
+              fullName.trim(),
 
-    if (newPassword !== confirmPassword) {
-      alert(
-        "New password and confirm password do not match."
+            email:
+              email.trim(),
+          }
+        );
+
+      const updatedProfile =
+        response.data?.profile;
+
+      if (updatedProfile) {
+        setFullName(
+          updatedProfile.full_name ||
+            ""
+        );
+
+        setEmail(
+          updatedProfile.email ||
+            ""
+        );
+      }
+
+      setSaved(true);
+
+      setTimeout(() => {
+        setSaved(false);
+      }, 2000);
+    } catch (error: any) {
+      console.error(
+        "Failed to update profile:",
+        error
       );
-      return;
+
+      const responseData =
+        error?.response?.data;
+
+      if (
+        responseData?.email
+      ) {
+        alert(
+          Array.isArray(
+            responseData.email
+          )
+            ? responseData.email[0]
+            : responseData.email
+        );
+
+        return;
+      }
+
+      if (
+        responseData?.full_name
+      ) {
+        alert(
+          Array.isArray(
+            responseData.full_name
+          )
+            ? responseData.full_name[0]
+            : responseData.full_name
+        );
+
+        return;
+      }
+
+      alert(
+        responseData?.detail ||
+          responseData?.message ||
+          "Failed to update profile."
+      );
+    } finally {
+      setProfileSaving(false);
     }
-
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
-
-    alert("Password updated successfully.");
   };
 
-  /* ================= MAIN SETTINGS ================= */
+  /* =========================================================
+     CHANGE PASSWORD
+  ========================================================= */
+
+  const handleChangePassword =
+    async () => {
+      if (
+        !currentPassword ||
+        !newPassword ||
+        !confirmPassword
+      ) {
+        alert(
+          "Please fill in all password fields."
+        );
+
+        return;
+      }
+
+      if (
+        newPassword !==
+        confirmPassword
+      ) {
+        alert(
+          "New password and confirm password do not match."
+        );
+
+        return;
+      }
+
+      if (newPassword.length < 8) {
+        alert(
+          "New password must be at least 8 characters long."
+        );
+
+        return;
+      }
+
+      try {
+        setPasswordLoading(true);
+
+        const response =
+          await api.post(
+            "/settings/change-password/",
+            {
+              current_password:
+                currentPassword,
+
+              new_password:
+                newPassword,
+
+              confirm_password:
+                confirmPassword,
+            }
+          );
+
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+
+        setShowCurrentPassword(
+          false
+        );
+
+        setShowNewPassword(false);
+
+        setShowConfirmPassword(
+          false
+        );
+
+        alert(
+          response.data?.message ||
+            "Password updated successfully."
+        );
+
+        /*
+         * Password changes invalidate the
+         * old authentication credentials
+         * depending on the authentication
+         * configuration.
+         *
+         * Send the user back to login so
+         * they can authenticate again.
+         */
+
+        clearAuthTokens();
+
+        router.replace("/login");
+      } catch (error: any) {
+        console.error(
+          "Failed to change password:",
+          error
+        );
+
+        const responseData =
+          error?.response?.data;
+
+        if (
+          responseData?.current_password
+        ) {
+          alert(
+            Array.isArray(
+              responseData.current_password
+            )
+              ? responseData.current_password[0]
+              : responseData.current_password
+          );
+
+          return;
+        }
+
+        if (
+          responseData?.new_password
+        ) {
+          alert(
+            Array.isArray(
+              responseData.new_password
+            )
+              ? responseData.new_password[0]
+              : responseData.new_password
+          );
+
+          return;
+        }
+
+        if (
+          responseData?.confirm_password
+        ) {
+          alert(
+            Array.isArray(
+              responseData.confirm_password
+            )
+              ? responseData.confirm_password[0]
+              : responseData.confirm_password
+          );
+
+          return;
+        }
+
+        alert(
+          responseData?.detail ||
+            responseData?.message ||
+            "Failed to update password."
+        );
+      } finally {
+        setPasswordLoading(false);
+      }
+    };
+
+  /* =========================================================
+     MAIN SETTINGS
+  ========================================================= */
 
   const renderMainSettings = () => {
     return (
@@ -155,11 +391,12 @@ export default function SettingsPage() {
           <button
             type="button"
             onClick={() =>
-              setActiveSection("profile")
+              setActiveSection(
+                "profile"
+              )
             }
             className="flex w-full items-center justify-between border-b border-[#e8edf4] px-5 py-5 text-left transition hover:bg-[#f8faff]"
           >
-
             <div className="flex items-center gap-4">
 
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#edf4ff] text-[#2463eb]">
@@ -167,7 +404,6 @@ export default function SettingsPage() {
               </div>
 
               <div>
-
                 <h2 className="text-[13px] font-semibold text-[#102a56]">
                   Profile & Account
                 </h2>
@@ -175,7 +411,6 @@ export default function SettingsPage() {
                 <p className="mt-1 text-[9px] text-[#8190a6]">
                   Manage your name and email address.
                 </p>
-
               </div>
 
             </div>
@@ -184,7 +419,6 @@ export default function SettingsPage() {
               size={17}
               className="text-[#8190a6]"
             />
-
           </button>
 
           {/* SECURITY */}
@@ -192,11 +426,12 @@ export default function SettingsPage() {
           <button
             type="button"
             onClick={() =>
-              setActiveSection("security")
+              setActiveSection(
+                "security"
+              )
             }
             className="flex w-full items-center justify-between border-b border-[#e8edf4] px-5 py-5 text-left transition hover:bg-[#f8faff]"
           >
-
             <div className="flex items-center gap-4">
 
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#edf4ff] text-[#2463eb]">
@@ -204,7 +439,6 @@ export default function SettingsPage() {
               </div>
 
               <div>
-
                 <h2 className="text-[13px] font-semibold text-[#102a56]">
                   Security
                 </h2>
@@ -212,7 +446,6 @@ export default function SettingsPage() {
                 <p className="mt-1 text-[9px] text-[#8190a6]">
                   Change your password and keep your account secure.
                 </p>
-
               </div>
 
             </div>
@@ -221,35 +454,29 @@ export default function SettingsPage() {
               size={17}
               className="text-[#8190a6]"
             />
-
           </button>
 
-          {/* NOTIFICATIONS */}
+          {/* LOGOUT */}
 
           <button
             type="button"
-            onClick={() =>
-              setActiveSection("notifications")
-            }
-            className="flex w-full items-center justify-between px-5 py-5 text-left transition hover:bg-[#f8faff]"
+            onClick={handleLogout}
+            className="flex w-full items-center justify-between px-5 py-5 text-left transition hover:bg-[#fff7f7]"
           >
-
             <div className="flex items-center gap-4">
 
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#edf4ff] text-[#2463eb]">
-                <Bell size={18} />
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#fff0f0] text-[#dc2626]">
+                <LogOut size={18} />
               </div>
 
               <div>
-
-                <h2 className="text-[13px] font-semibold text-[#102a56]">
-                  Notifications
+                <h2 className="text-[13px] font-semibold text-[#dc2626]">
+                  Logout
                 </h2>
 
                 <p className="mt-1 text-[9px] text-[#8190a6]">
-                  Manage your notification preferences.
+                  Sign out of your employee account.
                 </p>
-
               </div>
 
             </div>
@@ -258,7 +485,6 @@ export default function SettingsPage() {
               size={17}
               className="text-[#8190a6]"
             />
-
           </button>
 
         </div>
@@ -267,32 +493,13 @@ export default function SettingsPage() {
     );
   };
 
-  /* ================= PROFILE ================= */
+  /* =========================================================
+     PROFILE
+  ========================================================= */
 
   const renderProfile = () => {
     return (
       <div className="max-w-[700px]">
-
-        <button
-          type="button"
-          onClick={() => setActiveSection("main")}
-          className="mb-4 flex items-center gap-2 text-[10px] font-medium text-[#60728d] hover:text-[#2463eb]"
-        >
-          <ArrowLeft size={14} />
-          Back to Settings
-        </button>
-
-        <div className="mb-5">
-
-          <h1 className="text-[20px] font-bold">
-            Profile & Account
-          </h1>
-
-          <p className="mt-1 text-[10px] text-[#71829c]">
-            Manage your personal account information.
-          </p>
-
-        </div>
 
         <div className="rounded-xl border border-[#dfe7f1] bg-white">
 
@@ -303,7 +510,6 @@ export default function SettingsPage() {
             </div>
 
             <div>
-
               <h2 className="text-[13px] font-semibold">
                 Account Information
               </h2>
@@ -311,15 +517,15 @@ export default function SettingsPage() {
               <p className="text-[9px] text-[#8190a6]">
                 Update your account details.
               </p>
-
             </div>
 
           </div>
 
           <div className="space-y-5 p-5">
 
-            <div>
+            {/* FULL NAME */}
 
+            <div>
               <label className="mb-2 block text-[10px] font-semibold">
                 Full Name
               </label>
@@ -327,16 +533,22 @@ export default function SettingsPage() {
               <input
                 type="text"
                 value={fullName}
-                onChange={(e) =>
-                  setFullName(e.target.value)
+                disabled={
+                  profileLoading ||
+                  profileSaving
                 }
-                className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 text-[11px] outline-none focus:border-[#2463eb]"
+                onChange={(e) =>
+                  setFullName(
+                    e.target.value
+                  )
+                }
+                className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 text-[11px] outline-none focus:border-[#2463eb] disabled:bg-[#f7f9fc]"
               />
-
             </div>
 
-            <div>
+            {/* EMAIL */}
 
+            <div>
               <label className="mb-2 block text-[10px] font-semibold">
                 Email Address
               </label>
@@ -344,16 +556,22 @@ export default function SettingsPage() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) =>
-                  setEmail(e.target.value)
+                disabled={
+                  profileLoading ||
+                  profileSaving
                 }
-                className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 text-[11px] outline-none focus:border-[#2463eb]"
+                onChange={(e) =>
+                  setEmail(
+                    e.target.value
+                  )
+                }
+                className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 text-[11px] outline-none focus:border-[#2463eb] disabled:bg-[#f7f9fc]"
               />
-
             </div>
 
-            <div>
+            {/* ACCOUNT TYPE */}
 
+            <div>
               <label className="mb-2 block text-[10px] font-semibold">
                 Account Type
               </label>
@@ -361,8 +579,9 @@ export default function SettingsPage() {
               <div className="flex h-10 items-center rounded-lg border border-[#e2e8f0] bg-[#f7f9fc] px-3 text-[10px] text-[#60728d]">
                 Employee
               </div>
-
             </div>
+
+            {/* SAVE */}
 
             <div className="flex items-center justify-between pt-1">
 
@@ -376,14 +595,20 @@ export default function SettingsPage() {
 
               <button
                 type="button"
-                onClick={handleSaveProfile}
-                className="flex items-center gap-2 rounded-lg bg-[#2463eb] px-4 py-2.5 text-[10px] font-semibold text-white hover:bg-[#1f57d0]"
+                onClick={
+                  handleSaveProfile
+                }
+                disabled={
+                  profileLoading ||
+                  profileSaving
+                }
+                className="flex items-center gap-2 rounded-lg bg-[#2463eb] px-4 py-2.5 text-[10px] font-semibold text-white hover:bg-[#1f57d0] disabled:cursor-not-allowed disabled:opacity-60"
               >
-
                 <Save size={13} />
 
-                Save Changes
-
+                {profileSaving
+                  ? "Saving..."
+                  : "Save Changes"}
               </button>
 
             </div>
@@ -396,32 +621,13 @@ export default function SettingsPage() {
     );
   };
 
-  /* ================= SECURITY ================= */
+  /* =========================================================
+     SECURITY
+  ========================================================= */
 
   const renderSecurity = () => {
     return (
       <div className="max-w-[700px]">
-
-        <button
-          type="button"
-          onClick={() => setActiveSection("main")}
-          className="mb-4 flex items-center gap-2 text-[10px] font-medium text-[#60728d] hover:text-[#2463eb]"
-        >
-          <ArrowLeft size={14} />
-          Back to Settings
-        </button>
-
-        <div className="mb-5">
-
-          <h1 className="text-[20px] font-bold">
-            Security
-          </h1>
-
-          <p className="mt-1 text-[10px] text-[#71829c]">
-            Manage your account password.
-          </p>
-
-        </div>
 
         <div className="rounded-xl border border-[#dfe7f1] bg-white">
 
@@ -432,7 +638,6 @@ export default function SettingsPage() {
             </div>
 
             <div>
-
               <h2 className="text-[13px] font-semibold">
                 Change Password
               </h2>
@@ -440,17 +645,15 @@ export default function SettingsPage() {
               <p className="text-[9px] text-[#8190a6]">
                 Update your password regularly to keep your account secure.
               </p>
-
             </div>
 
           </div>
 
           <div className="space-y-5 p-5">
 
-            {/* CURRENT */}
+            {/* CURRENT PASSWORD */}
 
             <div>
-
               <label className="mb-2 block text-[10px] font-semibold">
                 Current Password
               </label>
@@ -463,15 +666,25 @@ export default function SettingsPage() {
                       ? "text"
                       : "password"
                   }
-                  value={currentPassword}
-                  onChange={(e) =>
-                    setCurrentPassword(e.target.value)
+                  value={
+                    currentPassword
                   }
-                  className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 pr-10 text-[11px] outline-none focus:border-[#2463eb]"
+                  onChange={(e) =>
+                    setCurrentPassword(
+                      e.target.value
+                    )
+                  }
+                  disabled={
+                    passwordLoading
+                  }
+                  className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 pr-10 text-[11px] outline-none focus:border-[#2463eb] disabled:bg-[#f7f9fc]"
                 />
 
                 <button
                   type="button"
+                  disabled={
+                    passwordLoading
+                  }
                   onClick={() =>
                     setShowCurrentPassword(
                       !showCurrentPassword
@@ -479,23 +692,19 @@ export default function SettingsPage() {
                   }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8190a6]"
                 >
-
                   {showCurrentPassword ? (
                     <EyeOff size={14} />
                   ) : (
                     <Eye size={14} />
                   )}
-
                 </button>
 
               </div>
-
             </div>
 
-            {/* NEW */}
+            {/* NEW PASSWORD */}
 
             <div>
-
               <label className="mb-2 block text-[10px] font-semibold">
                 New Password
               </label>
@@ -510,13 +719,21 @@ export default function SettingsPage() {
                   }
                   value={newPassword}
                   onChange={(e) =>
-                    setNewPassword(e.target.value)
+                    setNewPassword(
+                      e.target.value
+                    )
                   }
-                  className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 pr-10 text-[11px] outline-none focus:border-[#2463eb]"
+                  disabled={
+                    passwordLoading
+                  }
+                  className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 pr-10 text-[11px] outline-none focus:border-[#2463eb] disabled:bg-[#f7f9fc]"
                 />
 
                 <button
                   type="button"
+                  disabled={
+                    passwordLoading
+                  }
                   onClick={() =>
                     setShowNewPassword(
                       !showNewPassword
@@ -524,23 +741,19 @@ export default function SettingsPage() {
                   }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8190a6]"
                 >
-
                   {showNewPassword ? (
                     <EyeOff size={14} />
                   ) : (
                     <Eye size={14} />
                   )}
-
                 </button>
 
               </div>
-
             </div>
 
-            {/* CONFIRM */}
+            {/* CONFIRM PASSWORD */}
 
             <div>
-
               <label className="mb-2 block text-[10px] font-semibold">
                 Confirm New Password
               </label>
@@ -553,15 +766,25 @@ export default function SettingsPage() {
                       ? "text"
                       : "password"
                   }
-                  value={confirmPassword}
-                  onChange={(e) =>
-                    setConfirmPassword(e.target.value)
+                  value={
+                    confirmPassword
                   }
-                  className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 pr-10 text-[11px] outline-none focus:border-[#2463eb]"
+                  onChange={(e) =>
+                    setConfirmPassword(
+                      e.target.value
+                    )
+                  }
+                  disabled={
+                    passwordLoading
+                  }
+                  className="h-10 w-full rounded-lg border border-[#d7e1ed] bg-white px-3 pr-10 text-[11px] outline-none focus:border-[#2463eb] disabled:bg-[#f7f9fc]"
                 />
 
                 <button
                   type="button"
+                  disabled={
+                    passwordLoading
+                  }
                   onClick={() =>
                     setShowConfirmPassword(
                       !showConfirmPassword
@@ -569,29 +792,33 @@ export default function SettingsPage() {
                   }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8190a6]"
                 >
-
                   {showConfirmPassword ? (
                     <EyeOff size={14} />
                   ) : (
                     <Eye size={14} />
                   )}
-
                 </button>
 
               </div>
-
             </div>
+
+            {/* UPDATE PASSWORD */}
 
             <button
               type="button"
-              onClick={handleChangePassword}
-              className="flex items-center gap-2 rounded-lg bg-[#2463eb] px-4 py-2.5 text-[10px] font-semibold text-white hover:bg-[#1f57d0]"
+              onClick={
+                handleChangePassword
+              }
+              disabled={
+                passwordLoading
+              }
+              className="flex items-center gap-2 rounded-lg bg-[#2463eb] px-4 py-2.5 text-[10px] font-semibold text-white hover:bg-[#1f57d0] disabled:cursor-not-allowed disabled:opacity-60"
             >
-
               <Lock size={13} />
 
-              Update Password
-
+              {passwordLoading
+                ? "Updating..."
+                : "Update Password"}
             </button>
 
           </div>
@@ -602,333 +829,82 @@ export default function SettingsPage() {
     );
   };
 
-  /* ================= NOTIFICATIONS ================= */
-
-  const renderNotifications = () => {
-    return (
-      <div className="max-w-[700px]">
-
-        <button
-          type="button"
-          onClick={() => setActiveSection("main")}
-          className="mb-4 flex items-center gap-2 text-[10px] font-medium text-[#60728d] hover:text-[#2463eb]"
-        >
-
-          <ArrowLeft size={14} />
-
-          Back to Settings
-
-        </button>
-
-        <div className="mb-5">
-
-          <h1 className="text-[20px] font-bold">
-            Notifications
-          </h1>
-
-          <p className="mt-1 text-[10px] text-[#71829c]">
-            Choose which notifications you want to receive.
-          </p>
-
-        </div>
-
-        <div className="rounded-xl border border-[#dfe7f1] bg-white">
-
-          <div className="flex items-center gap-3 border-b border-[#e8edf4] px-5 py-4">
-
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edf4ff] text-[#2463eb]">
-              <Bell size={17} />
-            </div>
-
-            <div>
-
-              <h2 className="text-[13px] font-semibold">
-                Notification Preferences
-              </h2>
-
-              <p className="text-[9px] text-[#8190a6]">
-                Manage how you receive updates.
-              </p>
-
-            </div>
-
-          </div>
-
-          <div className="p-5">
-
-            <div className="flex items-center justify-between rounded-lg border border-[#e5ebf2] px-4 py-4">
-
-              <div>
-
-                <p className="text-[11px] font-semibold">
-                  Email Notifications
-                </p>
-
-                <p className="mt-1 text-[9px] text-[#8190a6]">
-                  Receive updates about your resume activity.
-                </p>
-
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setEmailNotifications(
-                    !emailNotifications
-                  )
-                }
-                className={`relative h-6 w-11 rounded-full transition ${
-                  emailNotifications
-                    ? "bg-[#2463eb]"
-                    : "bg-[#cbd5e1]"
-                }`}
-              >
-
-                <span
-                  className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition ${
-                    emailNotifications
-                      ? "left-6"
-                      : "left-1"
-                  }`}
-                />
-
-              </button>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-    );
-  };
+  /* =========================================================
+     PAGE
+  ========================================================= */
 
   return (
     <div className="min-h-screen bg-[#f7f9fc] text-[#102a56]">
 
       <div className="flex min-h-screen">
 
-        {/* ================= SIDEBAR ================= */}
+        {/* =====================================================
+           SHARED SIDEBAR
+        ===================================================== */}
 
-        <aside
-          className={`fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-[#e3eaf3] bg-white transition-all duration-300 ${
-            sidebarCollapsed
-              ? "w-[72px]"
-              : "w-[236px]"
-          }`}
-        >
+        <EmployeeSidebar />
 
-          {/* LOGO */}
+        {/* =====================================================
+           MAIN CONTENT
+        ===================================================== */}
 
-          <div
-            className={`flex h-[82px] items-center border-b border-[#e8edf4] ${
-              sidebarCollapsed
-                ? "justify-center"
-                : "px-4"
-            }`}
-          >
+        <main className="ml-[236px] min-h-screen flex-1">
 
-            <div className="flex items-center gap-3">
+          {/* ===================================================
+             TOP BAR
+          =================================================== */}
 
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2463eb] text-white">
-                <Sparkles size={21} />
-              </div>
+          <header className="flex h-[70px] items-center border-b border-[#e3eaf3] bg-white px-6">
 
-              {!sidebarCollapsed && (
-                <div>
-
-                  <h1 className="text-[15px] font-bold leading-tight">
-                    AI Resume
-                  </h1>
-
-                  <p className="text-[11px] font-semibold text-[#2463eb]">
-                    Analyzer
-                  </p>
-
-                </div>
-              )}
-
-            </div>
-
-          </div>
-
-          {/* NAVIGATION */}
-
-          <nav className="flex-1 px-3 py-4">
-
-            <div className="space-y-1">
-
-              {navigationItems.map((item) => {
-
-                const Icon = item.icon;
-
-                return (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() =>
-                      router.push(item.path)
-                    }
-                    title={
-                      sidebarCollapsed
-                        ? item.label
-                        : undefined
-                    }
-                    className={`flex w-full items-center rounded-lg transition ${
-                      sidebarCollapsed
-                        ? "justify-center px-3 py-2.5"
-                        : "gap-3 px-3 py-2.5"
-                    } ${
-                      item.path ===
-                      "/employee/settings"
-                        ? "bg-[#edf4ff] text-[#2463eb]"
-                        : "text-[#60728d] hover:bg-[#f5f8fc] hover:text-[#2463eb]"
-                    }`}
-                  >
-
-                    <Icon
-                      size={17}
-                      strokeWidth={1.8}
-                    />
-
-                    {!sidebarCollapsed && (
-                      <span className="text-[12px] font-medium">
-                        {item.label}
-                      </span>
-                    )}
-
-                  </button>
-                );
-
-              })}
-
-            </div>
-
-          </nav>
-
-          {/* USER + LOGOUT */}
-
-          <div className="border-t border-[#e8edf4] p-3">
-            <div
-              className={`rounded-xl bg-[#f7f9fc] ${
-                sidebarCollapsed ? "p-2" : "px-3 py-2.5"
-              }`}
-            >
-              <div
-                className={`flex items-center ${
-                  sidebarCollapsed
-                    ? "justify-center"
-                    : "justify-between"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#edf4ff] text-[#2463eb]">
-                    <UserCircle size={18} />
-                  </div>
-
-                  {!sidebarCollapsed && (
-                    <div>
-                      <p className="text-[11px] font-semibold">
-                        Employee
-                      </p>
-
-                      <p className="text-[9px] text-[#8190a6]">
-                        Employee account
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {!sidebarCollapsed && (
-                  <ChevronRight
-                    size={14}
-                    className="text-[#8190a6]"
-                  />
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                title="Logout"
-                className={`mt-2 flex items-center rounded-lg text-[#6f7f95] transition hover:bg-white hover:text-red-500 ${
-                  sidebarCollapsed
-                    ? "w-full justify-center px-2 py-2"
-                    : "w-full gap-2 px-2 py-1.5 text-[9px]"
-                }`}
-              >
-                <LogOut size={14} />
-                {!sidebarCollapsed && "Logout"}
-              </button>
-            </div>
-          </div>
-
-          {/* COLLAPSE */}
-
-          <button
-            type="button"
-            onClick={() =>
-              setSidebarCollapsed(
-                !sidebarCollapsed
-              )
-            }
-            className="absolute -right-3 top-[105px] flex h-7 w-7 items-center justify-center rounded-full border border-[#dfe6ef] bg-white text-[#60728d] shadow-sm hover:text-[#2463eb]"
-          >
-
-            {sidebarCollapsed ? (
-              <ChevronRight size={14} />
-            ) : (
-              <ChevronLeft size={14} />
-            )}
-
-          </button>
-
-        </aside>
-
-        {/* ================= MAIN ================= */}
-
-        <main
-          className={`min-h-screen flex-1 transition-all duration-300 ${
-            sidebarCollapsed
-              ? "ml-[72px]"
-              : "ml-[236px]"
-          }`}
-        >
-
-          {/* HEADER */}
-
-          <header className="flex h-[70px] items-center justify-between border-b border-[#e3eaf3] bg-white px-6">
-
-            <div>
+            {activeSection === "main" ? (
 
               <h2 className="text-[19px] font-bold">
                 Settings
               </h2>
 
-              <p className="mt-0.5 text-[10px] text-[#71829c]">
-                Manage your account settings.
-              </p>
+            ) : (
 
-            </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveSection(
+                    "main"
+                  )
+                }
+                className="flex items-center gap-2 text-[18px] font-bold text-[#102a56] transition hover:text-[#2463eb]"
+              >
+                <ArrowLeft
+                  size={19}
+                  strokeWidth={1.8}
+                />
+
+                {activeSection ===
+                "profile"
+                  ? "Profile & Account"
+                  : "Security"}
+              </button>
+
+            )}
 
           </header>
 
-          {/* CONTENT */}
+          {/* ===================================================
+             CONTENT
+          =================================================== */}
 
           <div className="px-6 py-5">
 
-            {activeSection === "main" &&
+            {activeSection ===
+              "main" &&
               renderMainSettings()}
 
-            {activeSection === "profile" &&
+            {activeSection ===
+              "profile" &&
               renderProfile()}
 
-            {activeSection === "security" &&
+            {activeSection ===
+              "security" &&
               renderSecurity()}
-
-            {activeSection === "notifications" &&
-              renderNotifications()}
 
           </div>
 
